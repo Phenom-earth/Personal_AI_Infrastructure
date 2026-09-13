@@ -92,7 +92,7 @@ async function runTurn(text: string): Promise<string> {
   // settingSources does NOT cover MCP config (public issue #1553,
   // @MatiasBarboza) — default-deny on this remote channel; opt in per server
   // via LIFEOS_REMOTE_MCP_ALLOWLIST. See ../lib/mcp-allowlist.ts.
-  const remoteMcp = loadRemoteMcpServers()
+  const { mcpServers: remoteMcp, bakedProfiles: remoteMcpBaked } = loadRemoteMcpServers()
   const sdkOptions: Record<string, unknown> = {
     cwd: CWD,
     tools: { type: "preset", preset: "claude_code" },
@@ -128,7 +128,7 @@ Rules, absolute:
 - Numbers and names the way a person says them out loud.
 - If a task needs real work (files, deploys, long research), do the quick version now and offer to queue the rest: "want me to pick that up on the Mac?"
 - Speak as ${getDAName()} — precise, fast, warm through attention to his context.
-- ${mcpStatusPromptLine(Object.keys(remoteMcp))}`,
+- ${mcpStatusPromptLine(Object.keys(remoteMcp), remoteMcpBaked)}`,
     },
   }
 

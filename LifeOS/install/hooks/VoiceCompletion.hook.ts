@@ -20,7 +20,7 @@
 import { readHookInput, parseTranscriptFromInput } from './lib/hook-io';
 import { handleVoice } from './handlers/VoiceNotification';
 import { extractVoiceCompletion } from '../LIFEOS/TOOLS/TranscriptParser';
-import { isDesktopChannel, logSkippedVoice, getNotificationChannel } from './lib/notification-channel';
+import { isDesktopChannel, isCodetalkerChannel, logSkippedVoice, getNotificationChannel } from './lib/notification-channel';
 
 /**
  * Extract a speakable summary from response text when no 🗣️ line exists.
@@ -78,9 +78,12 @@ async function main() {
   }
 
   // Channel gate: desktop /notify must not fire when the session is running
-  // on behalf of a remote channel (iMessage, Siri). Those channels deliver
-  // replies via their own APIs. See hooks/lib/notification-channel.ts.
-  if (!isDesktopChannel()) {
+  // on behalf of a remote channel (iMessage, Siri) or inside code-server.
+  // Code:Talker (codetalker channel) has its own delivery path in
+  // VoiceNotification.ts and falls through below; the others deliver via
+  // their own APIs entirely, so they skip here. See
+  // hooks/lib/notification-channel.ts.
+  if (!isDesktopChannel() && !isCodetalkerChannel()) {
     const channel = getNotificationChannel();
     console.error(`[VoiceCompletion] Voice OFF (remote channel: ${channel})`);
     logSkippedVoice({ hookLabel: 'VoiceCompletion', message: '', sessionId: input.session_id });

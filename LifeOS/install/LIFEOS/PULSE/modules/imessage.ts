@@ -162,7 +162,7 @@ async function processMessage(
   // @MatiasBarboza) — without an explicit mcpServers option this session gets
   // zero MCP servers. Default-deny by design on a remote channel; opt in per
   // server via LIFEOS_REMOTE_MCP_ALLOWLIST. See ../lib/mcp-allowlist.ts.
-  const remoteMcp = loadRemoteMcpServers()
+  const { mcpServers: remoteMcp, bakedProfiles: remoteMcpBaked } = loadRemoteMcpServers()
   const sdkOptions: Record<string, unknown> = {
     cwd: CWD,
     tools: { type: "preset", preset: "claude_code" },
@@ -198,7 +198,7 @@ A belt-and-suspenders egress sanitizer (LIFEOS/PULSE/lib/strip-mode-scaffolding.
 You have LifeOS skills, email, and calendar on this channel.
 Route email and calendar asks to whichever skills own them — their descriptions
 name the triggers. Do not assume a specific skill exists; if none matches, say so.
-${mcpStatusPromptLine(Object.keys(remoteMcp))}`,
+${mcpStatusPromptLine(Object.keys(remoteMcp), remoteMcpBaked)}`,
     },
   }
 

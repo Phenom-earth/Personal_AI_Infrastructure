@@ -58,6 +58,14 @@ export interface EnvDetection {
   display: boolean;
   /** Running inside an SSH session. */
   ssh: boolean;
+  /**
+   * Running inside a code-server (LinuxServer.io image) container — the shape
+   * this skill is seeded into on the Phenom C.O.D.E platform, one container
+   * per developer with $HOME as that developer's persistent volume. Detected
+   * from the image's own binary path, not an env var, since env vars are
+   * easier to spoof/lose across subprocess boundaries.
+   */
+  codeServer: boolean;
   bun: ToolInfo;
   git: ToolInfo;
   /**
@@ -164,6 +172,16 @@ export function detectDevTree(configRoot: string): boolean {
   return existsSync(join(configRoot, "skills", "_LIFEOS"));
 }
 
+/**
+ * code-server (LinuxServer.io image) marker. `/app/code-server` is that
+ * image's fixed install path for the code-server binary + bundled VS Code —
+ * stable across the image's own version bumps, unlike env vars which a
+ * misconfigured or nested shell can lose.
+ */
+export function detectCodeServer(): boolean {
+  return existsSync("/app/code-server");
+}
+
 // ── Composite env detection (the DetectEnv Tool payload) ──
 
 export function detectEnv(): EnvDetection {
@@ -177,12 +195,14 @@ export function detectEnv(): EnvDetection {
   // GUI session: macOS always has one locally; Linux needs DISPLAY/WAYLAND and not pure-SSH.
   const display =
     os.platform === "darwin" ? !ssh : !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY) && !ssh;
+  const codeServer = detectCodeServer();
 
   return {
     os,
     harness,
     display,
     ssh,
+    codeServer,
     bun: detectTool("bun", "bun --version"),
     git: detectTool("git", "git --version"),
     // public issue #1727, @rpriven — LifeOS-specific marker, not settings.json.

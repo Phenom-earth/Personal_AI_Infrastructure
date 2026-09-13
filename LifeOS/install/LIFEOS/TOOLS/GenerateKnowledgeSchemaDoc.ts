@@ -21,7 +21,15 @@ import {
   RELATION_VOCAB, SOURCE_KINDS, STATUS_VALUES, SCHEMA_VERSION,
 } from "./KnowledgeSchema";
 
-const OUT = pathResolve(homedir(), ".claude/LIFEOS/MEMORY/KNOWLEDGE/_schema.md");
+// Normalize env path vars Claude Code may inject unexpanded — literal $HOME/${HOME}
+// in LIFEOS_DIR resolves to a shadow dir (#1404 / PR #1451, author jbmml).
+if (process.env.LIFEOS_DIR && /^\$\{?HOME\}?(\/|$)/.test(process.env.LIFEOS_DIR)) {
+  process.env.LIFEOS_DIR = process.env.LIFEOS_DIR.replace(/^\$\{?HOME\}?/, process.env.HOME ?? homedir());
+}
+
+const HOME = process.env.HOME ?? process.env.USERPROFILE ?? homedir();
+const LIFEOS_DIR = process.env.LIFEOS_DIR || pathResolve(HOME, ".claude/LIFEOS");
+const OUT = pathResolve(LIFEOS_DIR, "MEMORY/KNOWLEDGE/_schema.md");
 
 /** Absolute path of the generated doc — importers compare against it. */
 export const SCHEMA_DOC_PATH = OUT;

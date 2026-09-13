@@ -184,7 +184,11 @@ function scaffoldMemory(configRoot: string, apply: boolean): DeployResult {
     if (!apply) {
       r.actions.push(`bun ${generator}`);
     } else {
-      const proc = Bun.spawnSync(["bun", generator], { stdout: "pipe", stderr: "pipe" });
+      const proc = Bun.spawnSync(["bun", generator], {
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, LIFEOS_DIR: join(configRoot, "LIFEOS") },
+      });
       if (proc.exitCode === 0) r.copied++;
       else r.failures.push(`GenerateKnowledgeSchemaDoc exited ${proc.exitCode}: ${proc.stderr.toString().trim()}`);
     }

@@ -2,8 +2,15 @@
  * VoiceNotification.ts - Voice Notification Handler
  *
  * PURPOSE:
- * Sends completion messages to the voice server for TTS playback.
- * Extracts the 🗣️ voice line from responses and sends to ElevenLabs via voice server.
+ * Sends completion messages to the voice server for TTS playback (desktop
+ * channel, ElevenLabs via the Pulse VoiceServer) or appends them to the
+ * Code:Talker speak-queue file (codetalker channel — see
+ * codetalker-dev's docs/SECURITY_DATA_FLOW.md section 4, "The PAI DA speak
+ * path": the extension host polls `~/.codetalker/speak-queue.txt`, posts each
+ * line to `#dev` as an `m.notice`, and every connected developer's own
+ * Code:Talker renders/speaks it in THEIR browser session, in the box owner's
+ * cloned voice — so on this channel there's no per-dev id to pass, the file
+ * lives on that dev's own persistent /config volume already).
  *
  * Pure handler: receives pre-parsed transcript data, sends to voice server.
  * No I/O for transcript reading - that's done by VoiceCompletion.hook.ts.
@@ -11,14 +18,18 @@
 
 import { existsSync, appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 import { paiPath } from '../lib/paths';
 import { getIdentity, type VoicePersonality } from '../lib/identity';
 import { getISOTimestamp } from '../lib/time';
 import { isValidVoiceCompletion, getVoiceFallback } from '../lib/output-validators';
 import { findActiveSessionByUUID } from '../lib/isa-utils';
+import { isCodetalkerChannel } from '../lib/notification-channel';
 
 import type { ParsedTranscript } from '../../LIFEOS/TOOLS/TranscriptParser';
 import { PULSE_BASE } from '../../LIFEOS/PULSE/endpoint';
+
+const CODETALKER_SPEAK_QUEUE = join(homedir(), '.codetalker', 'speak-queue.txt');
 
 const DA_IDENTITY = getIdentity();
 
@@ -44,7 +55,7 @@ interface VoiceEvent {
   event_type: 'sent' | 'failed' | 'skipped';
   message: string;
   character_count: number;
-  voice_engine: 'elevenlabs';
+  voice_engine: 'elevenlabs' | 'codetalker';
   voice_id: string;
   status_code?: number;
   error?: string;
@@ -89,6 +100,45 @@ function logVoiceEvent(event: VoiceEvent): void {
     }
   } catch {
     // Silent fail
+  }
+}
+
+/**
+ * Codetalker channel delivery: append the spoken line to the Code:Talker
+ * speak-queue file on this dev's own persistent /config volume. The
+ * extension host (codetalker-dev's src/extension.ts, startSpeakQueueWatcher)
+ * polls this file, posts each line to `#dev` as an `m.notice`, and every
+ * connected developer's Code:Talker speaks `m.notice`s aloud in the sender's
+ * voice — here, the box owner's own cloned voice, since the line is
+ * attributed to their session. One line per call; embedded newlines are
+ * flattened so a multi-line voice completion doesn't fragment into several
+ * queue entries.
+ */
+function sendToCodetalker(message: string, sessionId: string): void {
+  const baseEvent: Omit<VoiceEvent, 'event_type' | 'status_code' | 'error'> = {
+    timestamp: getISOTimestamp(),
+    session_id: sessionId,
+    message,
+    character_count: message.length,
+    voice_engine: 'codetalker',
+    voice_id: DA_IDENTITY.mainDAVoiceID,
+  };
+
+  try {
+    const dir = join(homedir(), '.codetalker');
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const line = message.replace(/\r?\n/g, ' ').trim();
+    appendFileSync(CODETALKER_SPEAK_QUEUE, line + '\n');
+    logVoiceEvent({ ...baseEvent, event_type: 'sent' });
+  } catch (error) {
+    console.error('[Voice] Failed to write codetalker speak-queue:', error);
+    logVoiceEvent({
+      ...baseEvent,
+      event_type: 'failed',
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -155,6 +205,13 @@ export async function handleVoice(parsed: ParsedTranscript, sessionId: string): 
   // Skip empty or too-short messages
   if (!voiceCompletion || voiceCompletion.length < 5) {
     console.error('[Voice] Skipping - message too short or empty');
+    return;
+  }
+
+  // Code:Talker channel: hand off to the speak-queue file, skip the
+  // ElevenLabs/Pulse VoiceServer path entirely (no laptop speaker to reach).
+  if (isCodetalkerChannel()) {
+    sendToCodetalker(voiceCompletion, sessionId);
     return;
   }
 

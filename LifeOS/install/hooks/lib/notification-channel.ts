@@ -1,20 +1,30 @@
 /**
- * notification-channel.ts — Channel isolation for desktop VoiceServer.
+ * notification-channel.ts — Channel isolation for desktop VoiceServer vs.
+ * Code:Talker vs. remote (iMessage/Siri) channels.
  *
  * The Pulse VoiceServer at localhost:31337/notify is the DESKTOP voice channel.
- * It plays audio out of the laptop speaker. Stop / StopFailure / UserPromptSubmit
- * hooks that fire /notify must NOT fire when the Claude session is running on
- * behalf of a remote channel (iMessage, Siri) — those channels deliver
- * replies via their own APIs, and a desktop /notify call from a
- * remote-channel turn is a leak.
+ * It plays audio out of the laptop speaker — correct for a single-user Mac,
+ * wrong inside a Phenom C.O.D.E platform code-server container (one container
+ * per developer; there is no shared laptop speaker to play to, and doing so
+ * would not reach the developer's own browser session anyway). Stop /
+ * StopFailure / UserPromptSubmit hooks that fire /notify must NOT fire when
+ * the Claude session is running on behalf of a remote channel (iMessage,
+ * Siri) or inside code-server — those deliver replies via their own paths
+ * (Code:Talker: `~/.codetalker/speak-queue.txt`, see VoiceNotification.ts),
+ * and a desktop /notify call from either is a leak.
  *
  * Contract:
  *   PULSE/modules/imessage.ts spawns its SDK subprocess with
  *     env: { ...process.env, LIFEOS_NOTIFICATION_CHANNEL: "imessage" }
  *   Any future remote channel (email, slack, ...) follows the same pattern.
+ *   'codetalker' is the one channel resolved automatically rather than by an
+ *   explicit env var — every code-server container is single-developer by
+ *   construction (dev-environment/docker-compose.yml, one volume per dev), so
+ *   there is no per-session identity to resolve; detecting the container
+ *   shape is sufficient.
  *
- * Every voice-firing hook checks isDesktopChannel() before calling /notify,
- * and writes a skipped event to voice-events.jsonl with reason
+ * Every voice-firing hook checks getNotificationChannel() before calling
+ * /notify, and writes a skipped event to voice-events.jsonl with reason
  * 'remote_channel:<channel>' so the leak is observable in either direction.
  */
 
@@ -22,7 +32,12 @@ import { existsSync, mkdirSync, appendFileSync } from 'fs';
 import { paiPath } from './paths';
 import { getISOTimestamp } from './time';
 
-export type NotificationChannel = 'desktop' | 'imessage' | string;
+export type NotificationChannel = 'desktop' | 'codetalker' | 'imessage' | string;
+
+/** code-server (LinuxServer.io image) marker — see Tools/InstallEngine.ts's detectCodeServer(), duplicated here since hooks/lib is a separate, dependency-free tree from Tools/. */
+function isCodeServerContainer(): boolean {
+  return existsSync('/app/code-server');
+}
 
 const VOICE_LOG_PATH = paiPath('MEMORY', 'VOICE', 'voice-events.jsonl');
 
@@ -49,6 +64,7 @@ export function getNotificationChannel(): NotificationChannel {
   if (!env.TERM && !env.TERM_PROGRAM && !env.KITTY_WINDOW_ID && !env.SSH_TTY) {
     return 'headless';
   }
+  if (isCodeServerContainer()) return 'codetalker';
   return 'desktop';
 }
 
@@ -58,6 +74,15 @@ export function getNotificationChannel(): NotificationChannel {
  */
 export function isDesktopChannel(): boolean {
   return getNotificationChannel() === 'desktop';
+}
+
+/**
+ * True when running inside a code-server container. Voice-firing hooks
+ * route here (speak-queue file) instead of skipping, unlike other non-desktop
+ * channels (imessage/siri/headless) which really do deliver elsewhere.
+ */
+export function isCodetalkerChannel(): boolean {
+  return getNotificationChannel() === 'codetalker';
 }
 
 /**
